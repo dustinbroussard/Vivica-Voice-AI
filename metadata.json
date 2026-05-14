@@ -1,0 +1,9 @@
+{
+  "name": "Vivica: AI Voice Assistant ",
+  "description": "",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}
