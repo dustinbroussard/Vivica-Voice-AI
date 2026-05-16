@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Orb } from './components/Orb';
 import { useVoiceAssistant } from './hooks/useVoiceAssistant';
-import { Settings, X, Mic, MicOff, Plus, Trash2, Edit2, Download, User, Save, Check, Rss, Play } from 'lucide-react';
+import { Settings, X, Mic, MicOff, Plus, Trash2, Edit2, Download, User, Save, Check, Rss, Play, Download as InstallIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SystemPrompt, UserProfile } from './types';
 
@@ -34,6 +34,12 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<'prompts' | 'profile' | 'feeds'>('prompts');
   const [newRssFeed, setNewRssFeed] = useState('');
+  
+  // PWA Install prompt state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [installDecisionMade, setInstallDecisionMade] = useState(false);
+  const installBannerRef = useRef<HTMLDivElement>(null);
   
   // State for prompts
   const [prompts, setPrompts] = useState<SystemPrompt[]>(() => {
@@ -103,6 +109,80 @@ export default function App() {
   };
 
   const currentYear = new Date().getFullYear();
+
+  // Check if app is already installed
+  const isAppInstalled = () => {
+    return (
+      (window.navigator as any).standalone === true ||
+      window.matchMedia('(display-mode: standalone)').matches
+    );
+  };
+
+  // PWA Install prompt handling
+  useEffect(() => {
+    // Check if user already made a decision in this session
+    const sessionDecision = sessionStorage.getItem('vivica_install_decision');
+    if (sessionDecision) {
+      setInstallDecisionMade(true);
+    }
+
+    // Don't show banner if app is already installed
+    if (isAppInstalled()) {
+      return;
+    }
+
+    // Listen for beforeinstallprompt event
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      // Show banner if no decision made in this session
+      if (!sessionDecision) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    // Listen for appinstalled event
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setShowInstallBanner(false);
+      setInstallDecisionMade(true);
+      sessionStorage.setItem('vivica_install_decision', 'installed');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      return;
+    }
+
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    
+    if (outcome === 'accepted') {
+      setInstallDecisionMade(true);
+      sessionStorage.setItem('vivica_install_decision', 'accepted');
+    } else {
+      setInstallDecisionMade(true);
+      sessionStorage.setItem('vivica_install_decision', 'declined');
+    }
+    
+    setDeferredPrompt(null);
+    setShowInstallBanner(false);
+  };
+
+  const handleDismissBanner = () => {
+    setShowInstallBanner(false);
+    setInstallDecisionMade(true);
+    sessionStorage.setItem('vivica_install_decision', 'dismissed');
+  };
 
   return (
     <div className="relative w-full h-full bg-transparent overflow-hidden touch-none" onClick={(e) => {
@@ -441,6 +521,53 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* PWA Install Banner */}
+      <AnimatePresence>
+        {showInstallBanner && deferredPrompt && (
+          <motion.div 
+            ref={installBannerRef}
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-[380px] z-[90] controls-layer pointer-events-auto"
+          >
+            <div className="bg-black/90 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-2xl">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shrink-0">
+                  <InstallIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-bold text-white mb-1">Install Vivica</h4>
+                  <p className="text-xs text-white/60 leading-relaxed">
+                    Add Vivica to your home screen for the best experience with offline support.
+                  </p>
+                </div>
+                <button 
+                  onClick={handleDismissBanner}
+                  className="p-1 text-white/40 hover:text-white transition-colors shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button 
+                  onClick={handleDismissBanner}
+                  className="flex-1 py-2 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all"
+                >
+                  Not Now
+                </button>
+                <button 
+                  onClick={handleInstallClick}
+                  className="flex-1 py-2 px-4 bg-white hover:bg-neutral-200 rounded-xl text-xs font-bold uppercase tracking-wider text-black transition-all"
+                >
+                  Install
+                </button>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
